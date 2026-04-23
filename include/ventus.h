@@ -49,6 +49,24 @@ typedef struct vt_kernel_metadata_t {  // 这个metadata是供驱动使用的，
     const char* kernel_name; ///> kernel名称
 } vt_kernel_metadata_t;
 
+// Kernel metadata buffer offsets (pointed to by CSR_KNL)
+#define KNL_ENTRY 0
+#define KNL_ARG_BASE 4
+#define KNL_WORK_DIM 8
+#define KNL_GL_SIZE_X 12
+#define KNL_GL_SIZE_Y 16
+#define KNL_GL_SIZE_Z 20
+#define KNL_LC_SIZE_X 24
+#define KNL_LC_SIZE_Y 28
+#define KNL_LC_SIZE_Z 32
+#define KNL_GL_OFFSET_X 36
+#define KNL_GL_OFFSET_Y 40
+#define KNL_GL_OFFSET_Z 44
+#define KNL_PRINT_ADDR 48
+#define KNL_PRINT_SIZE 52
+#define KNL_LDS_STACK_SIZE_PER_WF 56
+#define KNL_MAX_METADATA_SIZE 64
+
 // device caps ids
 #define VT_CAPS_VERSION           0x0
 #define VT_CAPS_MAX_CORES         0x1

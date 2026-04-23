@@ -118,6 +118,8 @@ vt_api_t load_backend() {
     backend_map["rtlsim"] = "librtlsim_driver.so";
     backend_map["rtl"] = "librtlsim_driver.so";
     backend_map["gpgpu"] = "librtlsim_driver.so";
+    backend_map["gdb"] = "libgdb_driver.so";
+    backend_map["debug"] = "libgdb_driver.so";
     backend_map["cycle"] = "libcyclesim_driver.so";
     backend_map["cyclesim"] = "libcyclesim_driver.so";
     backend_map["gvm"] = "libgvm_driver.so";

@@ -18,10 +18,31 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
+#ifndef VENTUS_DRIVER_BACKEND_NAME
+#define VENTUS_DRIVER_BACKEND_NAME "rtlsim device"
+#endif
+
+#ifndef VENTUS_DRIVER_WAVEFORM_FILENAME
+#define VENTUS_DRIVER_WAVEFORM_FILENAME "waveform.rtl.fst"
+#endif
+
+#ifndef VENTUS_DRIVER_VMEM_ERROR_NAME
+#define VENTUS_DRIVER_VMEM_ERROR_NAME "RTLSIM_device"
+#endif
+
+#ifndef VENTUS_DRIVER_DEFER_GDB_ATTACH
+#define VENTUS_DRIVER_DEFER_GDB_ATTACH 0
+#endif
+
+#ifndef VENTUS_DRIVER_WAIT_GDB_ON_FIRST_KERNEL
+#define VENTUS_DRIVER_WAIT_GDB_ON_FIRST_KERNEL 0
+#endif
+
 // static std::map<int, uint64_t> ptroots; // pagetable root physical address
 static std::shared_ptr<spdlog::logger> logger;
 BuddyAllocator<4096> buddy_allocator((0xFFFFFFFF - 0x90000000 + 1) / 4096, 16);
 constexpr paddr_t BUDDY_BASE = 0x90000000 - 4096;
+static bool g_waited_for_gdb_attach = false;
 
 static constexpr unsigned log2Ceil(unsigned n) {
     if (n <= 1) return 0;
@@ -31,6 +52,12 @@ static constexpr unsigned log2Ceil(unsigned n) {
 /// open the device and connect to it
 extern int vt_dev_open(vt_device_h *hdevice) {
     if (hdevice == nullptr) return -1;
+
+#if VENTUS_DRIVER_DEFER_GDB_ATTACH
+    if (std::getenv("GDB_DEFER_ATTACH") == nullptr) {
+        setenv("GDB_DEFER_ATTACH", "1", 0);
+    }
+#endif
 
     auto env_waveform = std::getenv("VENTUS_WAVEFORM");
     auto env_waveform_begin = std::getenv("VENTUS_WAVEFORM_BEGIN");
@@ -53,17 +80,21 @@ extern int vt_dev_open(vt_device_h *hdevice) {
     config.waveform.enable = waveform_enable;
     config.waveform.time_begin = waveform_begin;
     config.waveform.time_end = waveform_end;
-    config.waveform.filename = "waveform.rtl.fst";
+    config.waveform.filename = VENTUS_DRIVER_WAVEFORM_FILENAME;
     config.snapshot.enable = false;
     config.log.console.enable = true;
     config.log.console.level = "trace";
     config.log.file.enable = false;
     auto device = ventus_rtlsim_init(&config);
     *hdevice = device;
+    g_waited_for_gdb_attach = false;
     logger = spdlog::stdout_color_mt("ventus");
     logger->set_level(spdlog::level::trace);
     logger->set_pattern("[%l] %v [%s:%#]");
-    SPDLOG_LOGGER_DEBUG(logger, "vt_dev_open : hello world from ventus.cpp (rtlsim device)");
+    SPDLOG_LOGGER_DEBUG(
+        logger, "vt_dev_open : hello world from ventus.cpp ({})",
+        VENTUS_DRIVER_BACKEND_NAME
+    );
     return 0;
 }
 
@@ -72,7 +103,10 @@ extern int vt_dev_close(vt_device_h hdevice) {
     if (hdevice == nullptr) return -1;
     auto device = static_cast<ventus_rtlsim_t *>(hdevice);
     ventus_rtlsim_finish(device, false);
-    SPDLOG_LOGGER_DEBUG(logger, "vt_dev_close : goodbye from ventus.cpp (rtlsim device)");
+    SPDLOG_LOGGER_DEBUG(
+        logger, "vt_dev_close : goodbye from ventus.cpp ({})",
+        VENTUS_DRIVER_BACKEND_NAME
+    );
     return 0;
 }
 int vt_dev_caps(vt_device_h *hdevice, uint64_t caps_id, uint64_t *value) {
@@ -164,7 +198,10 @@ extern int vt_root_mem_alloc(vt_device_h hdevice, int taskID) {
     // logger->debug("vt_root_mem_alloc: taskID={}, ptroot={:x}", taskID, ptroot);
     // ptroots[taskID] = ptroot;
     if (taskID == 0) {
-        SPDLOG_LOGGER_ERROR(logger, "RTLSIM_device does not support VMEM yet, taskID must be 0");
+        SPDLOG_LOGGER_ERROR(
+            logger, "{} does not support VMEM yet, taskID must be 0",
+            VENTUS_DRIVER_VMEM_ERROR_NAME
+        );
     }
     return 0;
 }
@@ -214,6 +251,15 @@ extern int vt_copy_from_dev(
 extern int vt_start(vt_device_h hdevice, vt_kernel_metadata_t *mtd_driver, uint64_t taskID) {
     if (hdevice == nullptr || mtd_driver == nullptr) return -1;
     auto device = static_cast<ventus_rtlsim_t *>(hdevice);
+#if VENTUS_DRIVER_WAIT_GDB_ON_FIRST_KERNEL
+    if (!g_waited_for_gdb_attach) {
+        if (ventus_rtlsim_gdb_wait_for_attach(device) != 0) {
+            SPDLOG_LOGGER_ERROR(logger, "GDB attach handshake failed before first kernel launch");
+            return -1;
+        }
+        g_waited_for_gdb_attach = true;
+    }
+#endif
     ventus_kernel_metadata_t mtd_sim{
         .name = mtd_driver->kernel_name,
         .data = nullptr,
